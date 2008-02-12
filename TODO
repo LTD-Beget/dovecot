@@ -1,0 +1,293 @@
+ - quota causing dovecot.index.cache files to be created with pop3
+ - save cancelled -> cache still tried to be updated
+ - configure --docdir doesn't work now
+ - pipelining: commands that require output should do a delayed sync until
+   there are no transactions, instead of just immediately returning OK
+ - SORT/SEARCH: Replace invalid input with #fffd. Make sure squat doesn't
+   index it.
+ - stat() failed with index cache file /home/tss/dbox/INBOX/dbox-Mails/dovecot.index.cache: No such file or directory
+ - squat: handle expunges, nfs support
+ - fts lucene broken
+
+ - fix listescape plugin
+ - cache: compress when we can drop temporary fields.
+ - POP3 UIDL caching
+ - ACL: "foo/bar" in public namespace -> LIST "" % doesn't show "foo"
+ - new %modifier for reverse DNS lookups with a cache
+   - auth_gssapi_hostname = %Xl
+   - proxying would also want DNS lookups, but not reverse..
+ - ldap domain lookups which set the base for user lookup
+
+ - maildir+pop3/deliver fast updates:
+   - with locking enabled, pop3 could just keep the one and same sync lock and
+     do the whole thing using sync transaction
+   - don't update dovecot-uidlist if dovecot.index.cache doesn't exist /
+     there's nothing to cache
+   - if all messages are expunged and there are no unknown extensions in index,
+     unlink dovecot.index and rotate log and add some initial useful info to
+     the log (uidvalidity, nextuid)
+
+ - maildir
+   - don't allow more than 26 keywords
+   - physical separator could be configurable
+   - setting flags to same as they already are causes unnecessary
+     rename()s with identical parameters
+   - deliver+maildir: if new mails are in new/ or cur/ they're not added to
+     dovecot-uidlist but newly saved mails are, so UIDs will be in wrong order
+   - maildir_copy_with_hardlinks: We're currently first hardlinking to tmp/ and
+     then rename()ing. This wouldn't be necessary if uidlist syncing noticed
+     that someone else already had added them to uidlist, and the existing UIDs
+     could be assigned to them in the index.
+       - copying should copy already-cached data
+   - maildir_copy_preserve_filename=yes has a race condition causing "Append with
+     UID n, but next_uid = y" errors when quota plugin is loaded. Practically
+     won't happen except in stress testing.
+
+ - mbox
+   - UID renumbering doesn't really work after all?
+   - still problems with CRLF mboxes..
+
+ - Mailbox list indexes
+   - Should probably check dovecot.index.log stamp/size too so that non-zero
+     recent counters get reset
+   - Why are updates so slow?
+   - Support for FS layout
+
+ - threading: (all done?) 
+    - duplicate: mark original as rebuild
+    - re-parent (also reparenting to root): mark as rebuild
+    - unref: if refcount drops to zero, set children's parent=0 (can happen
+      if there are only grandchildren and dummy children)
+    - mail-hash: stat() and reopen if needed
+    - subjects: group roots togethere already while gathering subjects. then
+      go through them and sort them to get their sent date. then start writing
+      the nodes out. sorting needs to these cases:
+        1) root is dummy -> just sort their children. if there are dummies
+	   they're skipped and their children ascend
+	2) root is non-dummy -> there are no dummies at all in the thread.
+	   the root has the oldest date in the thread. after the root if there
+	   are re: or fwd: messages they're children to the root. if there are
+	   more messages after that, a new dummy parent needs to be created,
+	   and the rest of the messages need to be sorted before sending
+
+ - mail_log: log appends. support from and subject fields
+ - proxy: If remote server disconnects on login:
+   login: tried to change state 2 -> 2
+ - logging consistency:
+   http://www.dovecot.org/list/dovecot/2007-April/021532.html
+ - EXPUNGE command in read-only mailbox should give an error message if
+   there are messages marked as \Deleted?
+ - dovecot -o setting=something overriding
+ - file_cache: we're growing the mmap in page size blocks, which is horribly
+   slow if mremap() doesn't exist.
+ - login_max_processes_count shouldn't count proxying processes
+
+ - Allow %variables in mail_chroot setting
+ - something should be done to umask setting. we should be creating files with
+   0666 or 0777 and rely on umask, but we shouldn't do that unless we're sure
+   that the umask is the wanted one (ie. imap/pop3 process wasn't started
+   directly)
+ - ssl_verify_client_cert isn't working if the SSL cert doesn't have CRL
+
+ - keywords:
+    - add some limits to how many there can be
+       - don't return \* in PERMANENTFLAGS when we're full
+    - remove unused keywords?
+
+ - caching
+    - force bits should be used only for nonregistered fields
+    - change envelope parsing not to use get_headers() so imap.envelope can
+      actually be cached without all the headers..
+    - if there's no other pressure for compression, we should do it when
+      enough temp fields are ready to be dropped
+    - we could try compressing same field values into a single
+      location in cache file.
+
+ - mbox
+    - dirty state should be stored to index (with mbox_very_dirty_syncs)
+    - after some locking timeouts: mbox-lock.c: line 518 (mbox_lock):
+      assertion failed: (lock_type == F_RDLCK || mbox->mbox_lock_type != F_RDLCK)
+    - controldir for mboxes too and place subscriptions file there?
+    - syncing existing indexes takes 4x longer than creating new one, why?
+    - how well does dirty sync + status work? it reads the last mail every
+      time? not very good..
+    - always add empty line. make the parser require it too? syncing should
+      make sure there always exists two LFs at end of file. raw-mbox-stream
+      should make sure the last message ends with LF even if it doesn't exist
+      in the file
+    - Quote "From ", unquote ">From "
+    - COPY doesn't work to itself (lock assert crash, for now just disallowed)
+    - if we can't create dotlock file for mbox, make sure it still can be
+      selected in read-only state
+
+ - index
+    - if log file is lost, generate it from old and new index
+    - read-only support for mailboxes where we don't have write-access
+    - index file format changes:
+	- pack UIDs to beginning of file with UID ranges
+	- use squat-like compressed uid ranges everywhere
+        - write first extension intros in dovecot.index.log always with names
+	   - or better yet, drop the intro concept completely as it is now
+	- add "transaction boundaries" so we know which records belong to a
+	  single transaction.
+	   - only after that we can remove the transaction log offset
+	     overwriting (otherwise we can get partial transactions in views)
+
+ - namespaces
+    - namespaces: add new "auto_disable" flag so if the mailbox can't be opened
+      (eg. file doesn't exist), just ignore the problem and disable the
+      namespace
+
+ - lib-storage
+    - rename: allow moving between storages, as long as they're of same type
+    - x search charset asdf all -> should fail
+    - should we allow following symlinks in mbox/maildirs? they are now.
+       - if we implement shared mailboxes with shared indexes, never do that or
+	 others could symlink your personal mailboxes and see the indexes
+	 created for it which may contain envelope etc. data
+       - this allows circular mailbox hierarchies which should be prevented by
+	 eg. allowing max. 20 hierarchies.
+
+ - login
+    - when pipelining login command + post-login commands, login process should
+      pass the command to imap/pop3 process (at least one pop3 client does this)
+    - imap-login: Master sent reply with unknown tag 1. client closed
+      connection at the exact same time master was logging it in?
+      see master_request_abort()
+    - Digest-MD5: support integrity protection, and maybe crypting. Do it
+      through login process like SSL is done?
+    -  x login foo bar
+       x NO Authentication failed.
+       x login cras pass
+       * BYE Disconnected for inactivity.
+	^ but it's not disconnecting! (buggy dovecot-auth not replying)
+	  probably because userdb lookup didn't reply, and fd was already sent
+	  for master.. should imap-login be handling it anymore?..
+    - imap-login: Authenticate PLAIN failed: Authentication failed:
+      Authentication server isn't connected, try again later.. [127.0.0.1]
+        ^ NO Authentication failed. (should be Temporary login failure!)
+    - if auth process dies, login process should retry authentication if
+      possible. or if not, disconnect the client so it doesn't think the auth
+      failed.
+    - send client IP immediately after accept() to master process. make sure
+      master shows the IP if login dies unexpectedly. master should probably
+      also kill the login process if it doesn't kill itself soon enough.. or
+      maybe just log the IP immediately.
+
+ - auth
+    - with blocking passdb we're not caching lookups if the password was wrong
+    - non-plaintext authentication doesn't support all features:
+        - multiple passdbs don't work, only the first one is used
+	- auth cache's last_success password change check doesn't exist
+    - allow returning multiple gids
+    - SIGHUP restarts auth processes .. but does it wait until they've finished
+      with all requests? no.
+    - does dovecot-auth really break when it runs out of fds?
+    - dovecot-auth should limit how fast authentication requests are allowed
+      from login processes. especially if there's one login/connection the speed
+      should be something like once/sec. also limit how fast to accept new
+      connections.
+    - support read-only logins. user could with alternative password get only
+      read-access to mails so mails could be read relatively safely with
+      untrusted computers. Maybe always send [ALERT] about the previous
+      read-only login time with IP?
+    - dovecot-auth workers: create a separate dovecot-pam worker which shares
+      pretty much all code with dovecot-auth worker but isn't linked against
+      any libraries. or..? this might be difficult to do, especially because the
+      workers currently can handle any kind of passdb/userb requests. perhaps
+      there should be a completely separate simple PAM authenticator binary.
+
+ - master
+    - configurable syslog prefix
+    - if there are duplicate settings, complain about it
+
+ - quota
+    - if dovecot-uidlist can't be written, assume the new mails have UIDs 
+      beginning from uidlist.next_uid. Whenever mails are expunged, overwrite
+      the next_uid field with the current highest next_uid. Whenever we have
+      assumed UIDs and uidlist gets updated, throw the client out with
+      "inconsist mailbox".
+
+ - ssl
+    - add setting: ssl_options = bitmask. by default we enable all openssl
+      workarounds, this could be used to disable some of them
+    - gnutls support isn't working
+
+ - search
+    - message header search: we should ignore LWSP between two MIME blocks(?)
+    - message_search_init() could accept multiple search keywords so we
+      wouldn't need to call it separately for each one (so we wouldn't need
+      to parse the message multiple times).
+    - could optionally support scanning inside file attachments and use
+      plugins to extract text out of them (word, excel, pdf, etc. etc.)
+    - Create our own extension: When searching with TEXT/BODY, return
+      the message text surrounding the keywords just like web search engines
+      do. like: SEARCH X-PRINT-MATCHES TEXT "hello" -> * SEARCH 1 "He said:
+      Hello world!" 2 "Hello, I'm ...". This would be especially useful with
+      the above attachment scanning.
+
+ - deliver
+    - recipient_delimiter setting so user+mailbox@domain works directly
+
+ - general
+    - stop using atol(), atoi(), strtoul() etc. in places where we actually
+      care about what they return, and rather create our own function which
+      checks if the input overflows the integer, and if so call i_fatal()
+    - rfc2231 continuation support (useless?)
+    - rfc2557 support for BODYSTRUCTURE, as specified by RFC3501
+    - LMTP server
+    - ability to build plugins statically into the binaries
+    - ~/.dovecotrc to override system wide settings. namespace settings should
+      override all the previous namespace settings instead of adding new.
+    - things break if next_uid gets to 2^32
+
+capabilities:
+ - preferrably all should be implemented as plugins
+ - possibility to disable them from config file
+ - THREAD=ORDEREDSUBJECT - although pretty useless I'd think.
+ - acl (rfc4314)
+ - id (rfc2971)
+     - must be configurable what gets sent, default to only name=Dovecot
+     - separate pre/post-login settings
+     - optionally log configured parts of the client information, but only
+       once, probably at the same time as logging "Logged in",
+       "Disconnected", etc.
+     - remember to force truncating values longer than 30 chars,
+       especially before logging
+ - mailbox-referrals (rfc2193)
+     - this is useful whenever we would otherwise need to make the
+       connection ourself. for example load balancing and shared mailboxes
+       requiring another UID to run.
+     - this rfc defines no exact way for server to detect if client
+       supports referrals or not. I don't think there's much point in
+       supporting only referrals, as most clients don't support them.
+       Instead we should return referrals when we know that client
+       supports them, otherwise do the connecting ourself. If client
+       issues RLIST or RLSUB command, it's safe to assume it supports
+       referrals.
+     - for load balancing this works just fine, but what about shared
+       mailboxes which require different UID? If we login with our own
+       username, we end up with our own UID instead of what we wanted.
+       IMAP URLs don't support separated authorization id which would
+       have made this very easy.. We could give the "userid@group" as
+       userid, but clients probably treat it as different userid and
+       ask the password again.
+     - problems, problems, .. maybe not worth the trouble.
+ - drafts:
+     - http://www.imc.org/ids.html
+     - annotate (draft-ietf-imapext-annotate)
+	 - per-message annotations. this will be major change. especially
+	   because currently there's no suitable storage for them, and
+	   they'll probably change all the time.. maybe if we moved into
+	   berkeley db to store the .data file and these annotations.
+	 - this is separate problem from index files. indexes are treated as
+	   temporary files, annotations are permanent data. we'd have to
+	   support non-db way to do this too, which would probably be just a
+	   simple (slow) text file.
+	 - use lib-dict probably
+     - metadata (draft-daboo-imap-annotatemore)
+	 - server and per-mailbox annotations. much easier than
+	   per-message annotations, but they'd be easier to place into
+	   db as well.
+	 - lib-dict, again
+     - binary (draft-nerenberg-imap-binary)
