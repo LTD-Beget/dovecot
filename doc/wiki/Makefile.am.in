@@ -1,0 +1,6 @@
+wikidir = $(docdir)/wiki
+
+EXTRA_DIST = \
+	$(wiki_DATA)
+
+wiki_DATA = 
